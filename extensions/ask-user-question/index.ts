@@ -2,8 +2,9 @@
  * ask_user_question — Pi extension entry
  *
  * Registers an `ask_user_question` tool, schema-compatible with Claude
- * Code's AskUserQuestion, implemented with Pi's built-in
- * `ctx.ui.select`/`ctx.ui.input` dialogs only.
+ * Code's AskUserQuestion. In the TUI every question of a call shares one
+ * tabbed custom dialog (dialog.ts); non-TUI dialog-capable sessions (RPC)
+ * fall back to Pi's built-in `ctx.ui.select`/`ctx.ui.input` dialogs.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
