@@ -18,7 +18,7 @@ import {
 	titleFor,
 	toggleIndexForItem,
 } from "./ask.ts";
-import { promptMultiSelect } from "./multi-select.ts";
+import { promptQuestions } from "./dialog.ts";
 
 const OptionSchema = Type.Object({
 	label: Type.String({ description: "Short label for this option, shown as the primary choice text." }),
@@ -67,40 +67,44 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const questions = clampQuestions(params.questions as Question[]);
+			if (questions.length === 0) {
+				// The host does not runtime-validate the TypeBox schema, so an empty array can
+				// reach here; without this guard it reaches dialog.ts's render loop and throws.
+				throw new Error("No questions were provided.");
+			}
+
+			if (ctx.mode === "tui") {
+				// One unified tabbed dialog for the whole call, with back/forward
+				// navigation between questions — see dialog.ts.
+				const pairs = await promptQuestions(ctx, questions, signal);
+				if (pairs === undefined) {
+					throw new Error("User dismissed the question");
+				}
+				return { content: [{ type: "text", text: formatAnswers(pairs) }], details: undefined };
+			}
+
+			// RPC fallback: no custom components outside the TUI, so ask each question
+			// sequentially with the built-in select/input dialogs instead.
 			const pairs: Array<{ question: string; answer: string }> = [];
 
 			for (const q of questions) {
 				if (q.multiSelect) {
-					let selected: Set<number>;
-
-					if (ctx.mode === "tui") {
-						// One persistent custom dialog — avoids the flicker/cursor-reset of
-						// reopening a fresh ctx.ui.select per toggle (see multi-select.ts).
-						const result = await promptMultiSelect(ctx, q, signal);
-						if (result === undefined) {
+					const selected = new Set<number>();
+					for (;;) {
+						const items = multiSelectItems(q, selected);
+						const doneItem = items[items.length - 1];
+						const choice = await ctx.ui.select(titleFor(q, selected.size), items, { signal });
+						if (choice === undefined) {
 							throw new Error("User dismissed the question");
 						}
-						selected = result;
-					} else {
-						// RPC fallback: no custom components outside the TUI, so fall back
-						// to the select-loop (reopens the dialog on every toggle).
-						selected = new Set<number>();
-						for (;;) {
-							const items = multiSelectItems(q, selected);
-							const doneItem = items[items.length - 1];
-							const choice = await ctx.ui.select(titleFor(q, selected.size), items, { signal });
-							if (choice === undefined) {
-								throw new Error("User dismissed the question");
-							}
-							if (choice === doneItem) {
-								break;
-							}
-							const toggleIndex = toggleIndexForItem(items.indexOf(choice));
-							if (selected.has(toggleIndex)) {
-								selected.delete(toggleIndex);
-							} else {
-								selected.add(toggleIndex);
-							}
+						if (choice === doneItem) {
+							break;
+						}
+						const toggleIndex = toggleIndexForItem(items.indexOf(choice));
+						if (selected.has(toggleIndex)) {
+							selected.delete(toggleIndex);
+						} else {
+							selected.add(toggleIndex);
 						}
 					}
 

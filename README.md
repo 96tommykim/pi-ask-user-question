@@ -3,8 +3,9 @@
 An `ask_user_question` tool for the [pi coding agent](https://github.com/earendil-works/pi), letting the LLM
 ask the user structured multiple-choice questions mid-task instead of guessing. The schema is compatible
 with Claude Code's `AskUserQuestion` tool (1–4 questions, 2–4 labeled+described options each, optional
-`multiSelect`, an automatic "Other" free-text entry), but the UI is built entirely from Pi's own
-`ctx.ui.select`/`ctx.ui.input` dialogs — no custom rendering.
+`multiSelect`, an automatic "Other" free-text entry). In the TUI, all questions for a call are shown in one
+tabbed dialog with back/forward navigation; non-TUI dialog-capable sessions (RPC) fall back to Pi's
+built-in `ctx.ui.select`/`ctx.ui.input` dialogs, asked one question at a time.
 
 ## Install
 
@@ -14,50 +15,57 @@ pi install git:github.com/96tommykim/pi-ask-user-question
 
 ## Example
 
-Single-select:
+TUI, more than one question — one tabbed dialog, ■/□ marking answered/unanswered questions:
 
 ```
-┌ Which auth method should the API use? (Auth method) ┐
-│ ❯ API key — a static key sent in a header           │
-│   OAuth2 — full authorization-code flow              │
-│   Other (type your own answer)                       │
-└────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│ ← ■ Auth │ □ DB │ □ Deploy →        │
+│                                     │
+│ Which auth method should we use?    │
+│ ❯ JWT — token-based                 │
+│   Session — server-side session     │
+│   Other (type your own answer)      │
+│                                     │
+│ ←→ switch question · ↑↓ move ·      │
+│ enter select · esc cancel           │
+└─────────────────────────────────────┘
 ```
 
-multiSelect (a single persistent dialog in the TUI — arrows move the cursor, space toggles a row, enter confirms):
-
-```
-┌ Which endpoints need rate limiting? (2 selected) ────┐
-│ ❯ [x] /users — high traffic                          │
-│   [ ] /orders — moderate traffic                      │
-│   [x] /search — expensive queries                     │
-│   [ ] Other (type your own answer)                    │
-│                                                         │
-│   ↑↓ move · space toggle · enter confirm · esc cancel │
-└────────────────────────────────────────────────────────┘
-```
+A single question skips the tab bar; a multiSelect question shows checkboxes and swaps the hint to
+`space toggle · enter confirm`.
 
 ## Behavior notes
 
-- **Other entry**: every question gets a free-text "Other" choice for free, so the model should not add
-  its own "Other" option — picking it opens a text input dialog. Dismissing that input (Esc) aborts the
-  whole call the same as dismissing a select dialog; submitting it blank is only treated as "skip" inside
-  the multiSelect flow (see below) — for a single-select question a blank answer also aborts the call.
-- **multiSelect dialog**: in the TUI, a multi-select question is shown as one persistent custom dialog —
-  ↑/↓ move the cursor, space toggles the row under it (including "Other"), and enter confirms the current
-  selection. This keeps a single component alive for the whole question instead of reopening
-  `ctx.ui.select` on every toggle, which used to flicker the screen and reset the cursor to the top each
-  time. In non-TUI dialog-capable sessions (RPC), where custom components aren't available, it falls back
-  to a toggle loop that reopens a `ctx.ui.select` per toggle, with a "✓ Done" row to finish. Either way, if
-  "Other" ends up toggled on, a text input is shown afterward: a typed value is appended to the
-  comma-joined answer, dismissing the input (Esc) aborts the whole call, and submitting it blank just
-  skips the Other answer. If no options end up selected and there is no Other text, the answer is the
-  literal string `(no options selected)` rather than an empty string.
-- **Cancel / Escape**: dismissing any select dialog aborts the whole tool call with an error result telling
-  the model the user dismissed the question.
-- **Collision-safe rendering**: if a model-supplied option happens to render identically to another option,
-  or to the built-in "Other"/"Done" entries, duplicate entries get a disambiguating " (2)", " (3)", …
-  suffix so the built-in entries can never be hijacked by a same-looking option.
+- **Tabbed TUI dialog**: in the TUI, every question for a call is shown in one persistent custom dialog.
+  ←/→ (or Tab/Shift+Tab) switch questions, wrapping around; each question keeps its own cursor and
+  selection when you navigate away and back. Answering a question (or confirming a multiSelect one)
+  automatically advances to the next *unanswered* question. Once every question is answered, the dialog
+  resolves and the call completes. Esc cancels the whole call — except while typing an "Other" answer,
+  where it only backs out of that text input (see below); Ctrl+C always cancels the whole call, including
+  while typing. This replaced an earlier design that reopened `ctx.ui.select` on every keystroke/toggle,
+  which flickered the screen and reset the cursor to the top each time.
+- **RPC fallback**: non-TUI dialog-capable sessions (no custom components available) fall back to asking
+  each question sequentially with `ctx.ui.select`/`ctx.ui.input` — a multiSelect question there is a toggle
+  loop that reopens the dialog per toggle, with a "✓ Done" row to finish.
+- **Other entry**: every question gets a free-text "Other" choice for free, so the model should not add its
+  own "Other" option. In the TUI dialog, selecting/confirming Other opens an inline text editor. Submitting
+  non-blank text records the answer and advances. Esc, or submitting it blank, does *not* finalize anything:
+  it just closes the editor and returns to the option list. For multiSelect this also drops "Other" back out
+  of the selection and marks the question unanswered until re-confirmed with enter; for single-select any
+  previously recorded answer is kept as-is. In the RPC fallback,
+  dismissing the Other input (Esc) aborts the whole call, and a blank submit only means "skip" for
+  multiSelect — for a single-select question there a blank answer also aborts the call.
+- **Re-answering a multiSelect question**: toggling a checkbox (or dropping "Other" via Esc/blank as above)
+  on a question that's already answered clears that answer and its ■ chip back to □ — the new selection
+  isn't submitted until you press enter again to re-confirm.
+- **multiSelect with nothing selected**: if no options end up selected and there is no Other text, the
+  answer is the literal string `(no options selected)` rather than an empty string.
+- **Cancel / Escape**: dismissing a dialog aborts the whole tool call with an error result telling the model
+  the user dismissed the question.
+- **Collision-safe rendering** (RPC fallback's option lists): if a model-supplied option happens to render
+  identically to another option, or to the built-in "Other"/"Done" entries, duplicate entries get a
+  disambiguating " (2)", " (3)", … suffix so the built-in entries can never be hijacked by a same-looking
+  option.
 - **Non-interactive sessions**: the tool only requires dialog-capable UI (`ctx.hasUI`, true in both TUI and
   RPC modes) and is disabled for subagent children (`PI_SUBAGENT_CHILD=1`). When unavailable, it returns a
   graceful error telling the model to proceed with its best judgment or ask the user in plain text, instead

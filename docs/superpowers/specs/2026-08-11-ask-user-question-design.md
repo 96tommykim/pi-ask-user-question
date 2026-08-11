@@ -107,6 +107,20 @@ multiSelect answers are comma-joined labels.
 - **Schema violations**: TypeBox enforces min/max; runtime additionally clamps
   (max 4 questions, max 4 options) and proceeds.
 
+## Amendments (2026-08-11, post-release user feedback)
+
+1. **multiSelect select-loop replaced.** Reopening `ctx.ui.select` per toggle
+   flickered and reset the cursor. Replaced in TUI mode by a persistent
+   `ctx.ui.custom` component (space toggles, enter confirms); the select-loop
+   remains as the RPC fallback.
+2. **Unified tabbed dialog.** Sequential per-question dialogs allowed no
+   back/forward navigation. In TUI mode the whole call is now ONE tabbed
+   custom dialog (`dialog.ts`, modeled on pi's `questionnaire.ts` example):
+   header chips with ■/□ answered markers, ←→/tab switches questions,
+   revisiting overwrites an answer, inline Editor for "Other" free text,
+   submit resolves once every question is answered. Esc outside input mode
+   cancels the whole call. The RPC fallback stays sequential.
+
 ## Verification
 
 - `node --test extensions/ask-user-question/ask.test.ts` (pure logic)

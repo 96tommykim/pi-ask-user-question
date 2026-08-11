@@ -88,6 +88,25 @@ export function toggleSelection(selected: Set<number>, index: number): Set<numbe
 	return next;
 }
 
+/**
+ * Next index after `from` (wrapping) that is not in `answered`; `undefined`
+ * once every one of the `count` questions is answered.
+ */
+export function nextUnanswered(answered: Set<number>, count: number, from: number): number | undefined {
+	if (count <= 0) return undefined;
+	for (let step = 1; step <= count; step++) {
+		const index = (from + step) % count;
+		if (!answered.has(index)) return index;
+	}
+	return undefined;
+}
+
+/** Wraps `current + delta` into [0, count - 1]. */
+export function switchQuestion(current: number, delta: -1 | 1, count: number): number {
+	if (count <= 0) return 0;
+	return (current + delta + count) % count;
+}
+
 /** Comma-joins selected labels; "(no options selected)" when the list is empty. */
 export function joinMultiSelectAnswer(labels: string[]): string {
 	return labels.length > 0 ? labels.join(", ") : "(no options selected)";

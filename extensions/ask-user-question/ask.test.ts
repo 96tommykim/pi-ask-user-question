@@ -9,9 +9,11 @@ import {
 	joinMultiSelectAnswer,
 	moveCursor,
 	multiSelectItems,
+	nextUnanswered,
 	OTHER_LABEL,
 	type Question,
 	singleSelectItems,
+	switchQuestion,
 	titleFor,
 	toggleIndexForItem,
 	toggleSelection,
@@ -176,6 +178,33 @@ test("toggleSelection does not mutate the input set", () => {
 	const original = new Set([0]);
 	toggleSelection(original, 1);
 	assert.deepEqual([...original], [0]);
+});
+
+test("nextUnanswered returns the next unanswered index, wrapping past the end", () => {
+	assert.equal(nextUnanswered(new Set([0]), 3, 0), 1);
+	assert.equal(nextUnanswered(new Set([0, 1]), 3, 1), 2);
+	assert.equal(nextUnanswered(new Set([1, 2]), 3, 2), 0);
+});
+
+test("nextUnanswered returns undefined once every question is answered", () => {
+	assert.equal(nextUnanswered(new Set([0, 1, 2]), 3, 0), undefined);
+});
+
+test("nextUnanswered returns undefined for a single already-answered question", () => {
+	assert.equal(nextUnanswered(new Set([0]), 1, 0), undefined);
+});
+
+test("switchQuestion wraps forward past the last question", () => {
+	assert.equal(switchQuestion(2, 1, 3), 0);
+});
+
+test("switchQuestion wraps backward past the first question", () => {
+	assert.equal(switchQuestion(0, -1, 3), 2);
+});
+
+test("switchQuestion with a single question always stays put", () => {
+	assert.equal(switchQuestion(0, 1, 1), 0);
+	assert.equal(switchQuestion(0, -1, 1), 0);
 });
 
 test("titleFor formats single-select as question (header)", () => {
