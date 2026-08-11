@@ -71,6 +71,23 @@ export function toggleIndexForItem(itemIndex: number): number {
 	return itemIndex;
 }
 
+/** Move a cursor by ±1 over `rowCount` rows, clamped to [0, rowCount - 1]. */
+export function moveCursor(current: number, delta: -1 | 1, rowCount: number): number {
+	if (rowCount <= 0) return 0;
+	return Math.max(0, Math.min(rowCount - 1, current + delta));
+}
+
+/** Returns a new Set with `index` toggled in or out of `selected` (does not mutate `selected`). */
+export function toggleSelection(selected: Set<number>, index: number): Set<number> {
+	const next = new Set(selected);
+	if (next.has(index)) {
+		next.delete(index);
+	} else {
+		next.add(index);
+	}
+	return next;
+}
+
 /** Comma-joins selected labels; "(no options selected)" when the list is empty. */
 export function joinMultiSelectAnswer(labels: string[]): string {
 	return labels.length > 0 ? labels.join(", ") : "(no options selected)";

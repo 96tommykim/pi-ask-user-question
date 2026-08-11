@@ -18,6 +18,7 @@ import {
 	titleFor,
 	toggleIndexForItem,
 } from "./ask.ts";
+import { promptMultiSelect } from "./multi-select.ts";
 
 const OptionSchema = Type.Object({
 	label: Type.String({ description: "Short label for this option, shown as the primary choice text." }),
@@ -70,32 +71,46 @@ export default function (pi: ExtensionAPI) {
 
 			for (const q of questions) {
 				if (q.multiSelect) {
-					const selected = new Set<number>();
-					let otherText: string | undefined;
+					let selected: Set<number>;
 
-					for (;;) {
-						const items = multiSelectItems(q, selected);
-						const doneItem = items[items.length - 1];
-						const choice = await ctx.ui.select(titleFor(q, selected.size), items, { signal });
-						if (choice === undefined) {
+					if (ctx.mode === "tui") {
+						// One persistent custom dialog — avoids the flicker/cursor-reset of
+						// reopening a fresh ctx.ui.select per toggle (see multi-select.ts).
+						const result = await promptMultiSelect(ctx, q, signal);
+						if (result === undefined) {
 							throw new Error("User dismissed the question");
 						}
-						if (choice === doneItem) {
-							if (selected.has(q.options.length)) {
-								const typed = await ctx.ui.input(q.question, "Type your answer", { signal });
-								if (typed === undefined) {
-									throw new Error("User dismissed the question");
-								}
-								if (typed.trim()) otherText = typed.trim();
+						selected = result;
+					} else {
+						// RPC fallback: no custom components outside the TUI, so fall back
+						// to the select-loop (reopens the dialog on every toggle).
+						selected = new Set<number>();
+						for (;;) {
+							const items = multiSelectItems(q, selected);
+							const doneItem = items[items.length - 1];
+							const choice = await ctx.ui.select(titleFor(q, selected.size), items, { signal });
+							if (choice === undefined) {
+								throw new Error("User dismissed the question");
 							}
-							break;
+							if (choice === doneItem) {
+								break;
+							}
+							const toggleIndex = toggleIndexForItem(items.indexOf(choice));
+							if (selected.has(toggleIndex)) {
+								selected.delete(toggleIndex);
+							} else {
+								selected.add(toggleIndex);
+							}
 						}
-						const toggleIndex = toggleIndexForItem(items.indexOf(choice));
-						if (selected.has(toggleIndex)) {
-							selected.delete(toggleIndex);
-						} else {
-							selected.add(toggleIndex);
+					}
+
+					let otherText: string | undefined;
+					if (selected.has(q.options.length)) {
+						const typed = await ctx.ui.input(q.question, "Type your answer", { signal });
+						if (typed === undefined) {
+							throw new Error("User dismissed the question");
 						}
+						if (typed.trim()) otherText = typed.trim();
 					}
 
 					const labels = [...selected]

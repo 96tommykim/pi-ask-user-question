@@ -7,12 +7,14 @@ import {
 	formatAnswers,
 	formatOption,
 	joinMultiSelectAnswer,
+	moveCursor,
 	multiSelectItems,
 	OTHER_LABEL,
 	type Question,
 	singleSelectItems,
 	titleFor,
 	toggleIndexForItem,
+	toggleSelection,
 } from "./ask.ts";
 
 function makeQuestion(overrides: Partial<Question> = {}): Question {
@@ -145,6 +147,35 @@ test("multiSelectItems dedupes an option that collides with the Other entry", ()
 test("toggleIndexForItem is a trivial identity mapping", () => {
 	assert.equal(toggleIndexForItem(0), 0);
 	assert.equal(toggleIndexForItem(2), 2);
+});
+
+test("moveCursor steps by ±1 within range", () => {
+	assert.equal(moveCursor(1, 1, 4), 2);
+	assert.equal(moveCursor(1, -1, 4), 0);
+});
+
+test("moveCursor clamps at the top row", () => {
+	assert.equal(moveCursor(0, -1, 4), 0);
+});
+
+test("moveCursor clamps at the bottom row", () => {
+	assert.equal(moveCursor(3, 1, 4), 3);
+});
+
+test("toggleSelection adds an unselected index", () => {
+	const result = toggleSelection(new Set([0]), 1);
+	assert.deepEqual([...result].sort(), [0, 1]);
+});
+
+test("toggleSelection removes an already-selected index", () => {
+	const result = toggleSelection(new Set([0, 1]), 1);
+	assert.deepEqual([...result], [0]);
+});
+
+test("toggleSelection does not mutate the input set", () => {
+	const original = new Set([0]);
+	toggleSelection(original, 1);
+	assert.deepEqual([...original], [0]);
 });
 
 test("titleFor formats single-select as question (header)", () => {

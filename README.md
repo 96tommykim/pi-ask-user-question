@@ -24,7 +24,7 @@ Single-select:
 └────────────────────────────────────────────────────────┘
 ```
 
-multiSelect (a toggle loop — selecting an item flips it and re-opens the dialog):
+multiSelect (a single persistent dialog in the TUI — arrows move the cursor, space toggles a row, enter confirms):
 
 ```
 ┌ Which endpoints need rate limiting? (2 selected) ────┐
@@ -32,7 +32,8 @@ multiSelect (a toggle loop — selecting an item flips it and re-opens the dialo
 │   [ ] /orders — moderate traffic                      │
 │   [x] /search — expensive queries                     │
 │   [ ] Other (type your own answer)                    │
-│   ✓ Done                                               │
+│                                                         │
+│   ↑↓ move · space toggle · enter confirm · esc cancel │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -42,12 +43,16 @@ multiSelect (a toggle loop — selecting an item flips it and re-opens the dialo
   its own "Other" option — picking it opens a text input dialog. Dismissing that input (Esc) aborts the
   whole call the same as dismissing a select dialog; submitting it blank is only treated as "skip" inside
   the multiSelect flow (see below) — for a single-select question a blank answer also aborts the call.
-- **multiSelect toggle loop**: for multi-select questions, each selection toggles that option (including
-  "Other") and reopens the dialog; choosing "✓ Done" finishes the question. If "Other" is toggled on when
-  "Done" is chosen, a text input is shown: a typed value is appended to the comma-joined answer, dismissing
-  the input (Esc) aborts the whole call, and submitting it blank just skips the Other answer. If no options
-  end up selected and there is no Other text, the answer is the literal string `(no options selected)`
-  rather than an empty string.
+- **multiSelect dialog**: in the TUI, a multi-select question is shown as one persistent custom dialog —
+  ↑/↓ move the cursor, space toggles the row under it (including "Other"), and enter confirms the current
+  selection. This keeps a single component alive for the whole question instead of reopening
+  `ctx.ui.select` on every toggle, which used to flicker the screen and reset the cursor to the top each
+  time. In non-TUI dialog-capable sessions (RPC), where custom components aren't available, it falls back
+  to a toggle loop that reopens a `ctx.ui.select` per toggle, with a "✓ Done" row to finish. Either way, if
+  "Other" ends up toggled on, a text input is shown afterward: a typed value is appended to the
+  comma-joined answer, dismissing the input (Esc) aborts the whole call, and submitting it blank just
+  skips the Other answer. If no options end up selected and there is no Other text, the answer is the
+  literal string `(no options selected)` rather than an empty string.
 - **Cancel / Escape**: dismissing any select dialog aborts the whole tool call with an error result telling
   the model the user dismissed the question.
 - **Collision-safe rendering**: if a model-supplied option happens to render identically to another option,
