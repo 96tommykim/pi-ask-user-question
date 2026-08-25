@@ -43,8 +43,14 @@ export function validateQuestions(value: unknown): QuestionValidation {
 		if (typeof rawQuestion.question !== "string" || !rawQuestion.question.trim()) {
 			return { ok: false, error: `questions[${questionIndex}].question must be a non-empty string.` };
 		}
+		if (hasTerminalControl(rawQuestion.question)) {
+			return { ok: false, error: `questions[${questionIndex}].question must not contain terminal control characters.` };
+		}
 		if (typeof rawQuestion.header !== "string" || !rawQuestion.header.trim()) {
 			return { ok: false, error: `questions[${questionIndex}].header must be a non-empty string.` };
+		}
+		if (hasTerminalControl(rawQuestion.header)) {
+			return { ok: false, error: `questions[${questionIndex}].header must not contain terminal control characters.` };
 		}
 		if (!Array.isArray(rawQuestion.options)) {
 			return { ok: false, error: `questions[${questionIndex}].options must be an array with 2 to 4 options.` };
@@ -56,8 +62,14 @@ export function validateQuestions(value: unknown): QuestionValidation {
 			if (typeof rawOption.label !== "string" || !rawOption.label.trim()) {
 				return { ok: false, error: `questions[${questionIndex}].options[${optionIndex}].label must be a non-empty string.` };
 			}
+			if (hasTerminalControl(rawOption.label)) {
+				return { ok: false, error: `questions[${questionIndex}].options[${optionIndex}].label must not contain terminal control characters.` };
+			}
 			if (typeof rawOption.description !== "string") {
 				return { ok: false, error: `questions[${questionIndex}].options[${optionIndex}].description must be a string.` };
+			}
+			if (hasTerminalControl(rawOption.description)) {
+				return { ok: false, error: `questions[${questionIndex}].options[${optionIndex}].description must not contain terminal control characters.` };
 			}
 			options.push({ label: rawOption.label, description: rawOption.description });
 		}
@@ -75,6 +87,27 @@ export function validateQuestions(value: unknown): QuestionValidation {
 		});
 	}
 	return { ok: true, questions };
+}
+
+/** Validate untrusted tool parameters and fail the tool call before any UI opens. */
+export function validatedQuestionsOrThrow(value: unknown): Question[] {
+	const validation = validateQuestions(value);
+	if (!validation.ok) throw new Error(`Invalid ask_user_question input: ${validation.error}`);
+	return validation.questions;
+}
+
+/** Fail before opening UI when the host cannot safely present a question. */
+export function assertInteractiveQuestionSession(hasUI: boolean, isSubagent: boolean): void {
+	if (isSubagent) {
+		throw new Error("ask_user_question is unavailable in subagent sessions. Escalate to the parent agent and request that it ask the user.");
+	}
+	if (!hasUI) {
+		throw new Error("This session is not interactive, so the question could not be shown. Ask the user in plain text instead.");
+	}
+}
+
+function hasTerminalControl(value: string): boolean {
+	return /[\u0000-\u001f\u007f-\u009f]/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

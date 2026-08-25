@@ -20,7 +20,7 @@ import {
 	switchQuestion,
 	toggleSelection,
 } from "./ask.ts";
-import { calculateViewport, viewportIndicator } from "./viewport.ts";
+import { calculateStickyFooterViewport, viewportIndicator } from "./viewport.ts";
 
 interface QuestionState {
 	cursor: number;
@@ -375,21 +375,21 @@ export function promptQuestions(
 					// The editor's cursor is the useful focused range: its own renderer
 					// scrolls long text before this outer viewport is applied.
 					focusStart = editorStart + Math.max(0, cursorLine);
-					lines.push("");
-					addWrappedWithPrefix(lines, " ", theme.fg("dim", "enter submit · esc back"), renderWidth);
-				} else {
-					addWrappedWithPrefix(lines, " ", theme.fg("dim", hintLine(q)), renderWidth);
 				}
-				lines.push(theme.fg("accent", "─".repeat(renderWidth)));
 
 				// Wrapping can still yield an over-wide CJK grapheme or a host component
-				// line, so normalize every final line before viewport selection.
+				// line, so normalize every final body line before viewport selection.
 				const safeLines = lines.map((line) => fitLine(line, renderWidth));
-				const viewport = calculateViewport(safeLines.length, viewportHeight, focusStart);
+				const stickyViewport = calculateStickyFooterViewport(safeLines.length, viewportHeight, focusStart);
+				const viewport = stickyViewport.body;
 				const visible: string[] = [];
 				if (viewport.hasAbove) visible.push(fitLine(theme.fg("dim", viewportIndicator("up", viewport.start, renderWidth)), renderWidth));
 				visible.push(...safeLines.slice(viewport.start, viewport.end));
 				if (viewport.hasBelow) visible.push(fitLine(theme.fg("dim", viewportIndicator("down", safeLines.length - viewport.end, renderWidth)), renderWidth));
+				if (stickyViewport.footerVisible) {
+					const action = inputMode ? "enter submit · esc back" : hintLine(q);
+					visible.push(fitLine(theme.fg("dim", action), renderWidth));
+				}
 
 				cachedWidth = width;
 				cachedHeight = viewportHeight;

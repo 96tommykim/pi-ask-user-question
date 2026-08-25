@@ -70,16 +70,17 @@ A single question skips the tab bar; a multiSelect question shows checkboxes and
   option.
 - **Input validation**: before any UI opens, runtime input is checked independently of the schema. Questions
   need non-empty question text and headers, and 2–4 options with non-empty labels; descriptions may be empty.
-  Oversized question and option arrays retain the historical max-four clamp. Malformed values return a clear
-  tool error rather than reaching the dialog renderer.
-- **Sequencing, not gating**: `executionMode: "sequential"` only serializes this tool's calls. It does not
-  cancel sibling calls, and it does not bind an answer to a later operation. This package is a generic
-  question tool, not a permission gate. When a later tool call depends on an answer, make that call in a
-  subsequent assistant turn after the answer arrives.
+  Terminal control characters (including ANSI/APC escapes) are rejected in every rendered field. Oversized
+  question and option arrays retain the historical max-four clamp. Malformed values throw a clear tool failure
+  rather than reaching the dialog renderer.
+- **Sequencing, not gating**: `executionMode: "sequential"` makes that assistant message's tool-call batch
+  execute in order. It does not cancel or conditionally suppress later sibling calls, and it does not bind
+  an answer to a later operation. This package is a generic question tool, not a permission gate. When a
+  later tool call depends on an answer, make that call in a subsequent assistant turn after the answer arrives.
 - **Non-interactive sessions**: the tool only requires dialog-capable UI (`ctx.hasUI`, true in both TUI and
-  RPC modes) and is disabled for subagent children (`PI_SUBAGENT_CHILD=1`). When unavailable, it returns a
-  graceful error telling the model to proceed with its best judgment or ask the user in plain text, instead
-  of hanging on a dialog that can never be shown.
+  RPC modes). A subagent child (`PI_SUBAGENT_CHILD=1`) always fails first and must escalate to its parent agent
+  to request that the parent ask the user. A headless non-subagent fails with guidance to ask the user in plain
+  text, instead of hanging on a dialog that can never be shown.
 
 ## Development
 
@@ -88,6 +89,7 @@ node --test extensions/ask-user-question/*.test.ts
 ```
 
 `extensions/ask-user-question/ask.ts` and `viewport.ts` are pure logic with zero imports from Pi packages
-or TypeBox, so they run directly under `node --test`. `extensions/ask-user-question/index.ts` is the extension entry that
-wires that logic into `pi.registerTool`; it relies on the TypeBox and Pi types that the Pi host provides
-at runtime, so it isn't smoke-tested outside of a real `pi` installation.
+or TypeBox, so they run directly under `node --test`. The entry and dialog tests import the real `index.ts`
+and `dialog.ts` through small, local Pi/TypeBox/TUI mocks; they cover tool control flow and bounded component
+rendering without a real `pi` installation. A manual interactive TUI check remains appropriate for host rendering
+and terminal behavior.

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	assertInteractiveQuestionSession,
 	clampQuestions,
 	dedupeItems,
 	DONE_LABEL,
@@ -18,6 +19,7 @@ import {
 	toggleIndexForItem,
 	toggleSelection,
 	validateQuestions,
+	validatedQuestionsOrThrow,
 } from "./ask.ts";
 
 function makeQuestion(overrides: Partial<Question> = {}): Question {
@@ -72,6 +74,34 @@ test("validateQuestions rejects malformed runtime values with clear errors", () 
 		assert.equal(result.ok, false);
 		if (!result.ok) assert.match(result.error, new RegExp(expected));
 	}
+});
+
+test("validateQuestions rejects terminal controls in every rendered field while accepting ordinary Unicode", () => {
+	const controls = ["\u001b", "\u0000", "\u0085", "\x1b_pi:c\x07"];
+	for (const [field, makeValue] of [
+		["question", (control: string) => [{ ...makeQuestion(), question: `Question${control}` }]],
+		["header", (control: string) => [{ ...makeQuestion(), header: `Header${control}` }]],
+		["label", (control: string) => [{ ...makeQuestion(), options: [{ label: `A${control}`, description: "" }, { label: "B", description: "" }] }]],
+		["description", (control: string) => [{ ...makeQuestion(), options: [{ label: "A", description: `Description${control}` }, { label: "B", description: "" }] }]],
+	] as const) {
+		for (const control of controls) {
+			const result = validateQuestions(makeValue(control));
+			assert.equal(result.ok, false, `${field} accepted ${JSON.stringify(control)}`);
+			if (!result.ok) assert.match(result.error, new RegExp(`${field}.*terminal control characters`));
+		}
+	}
+	assert.equal(validateQuestions([{ ...makeQuestion(), question: "選択 é", header: "確認", options: [{ label: "はい", description: "説明" }, { label: "いいえ", description: "" }] }]).ok, true);
+});
+
+test("validatedQuestionsOrThrow rejects malformed runtime input instead of resolving a result", () => {
+	assert.throws(() => validatedQuestionsOrThrow([]), /Invalid ask_user_question input: questions must contain at least one question/);
+});
+
+test("assertInteractiveQuestionSession rejects non-interactive and subagent calls", () => {
+	assert.throws(() => assertInteractiveQuestionSession(false, false), /Ask the user in plain text/);
+	assert.throws(() => assertInteractiveQuestionSession(true, true), /Escalate to the parent agent/);
+	assert.throws(() => assertInteractiveQuestionSession(false, true), /Escalate to the parent agent/);
+	assert.doesNotThrow(() => assertInteractiveQuestionSession(true, false));
 });
 
 test("validateQuestions accepts empty descriptions and clamps oversized arrays", () => {

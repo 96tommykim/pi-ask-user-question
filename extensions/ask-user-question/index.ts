@@ -10,10 +10,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
+	assertInteractiveQuestionSession,
 	formatAnswers,
 	joinMultiSelectAnswer,
 	multiSelectItems,
-	validateQuestions,
+	validatedQuestionsOrThrow,
 	singleSelectItems,
 	titleFor,
 	toggleIndexForItem,
@@ -51,10 +52,6 @@ const AskUserQuestionParams = Type.Object({
 const DESCRIPTION =
 	"Ask the user one or more structured multiple-choice questions when you are blocked on a decision that is genuinely the user's to make — not one you could resolve yourself with more research or a reasonable default. Ask 1 to 4 questions per call, each with 2 to 4 mutually exclusive options that have a short label and a one-line description. Set 'header' to a short chip label (about 12 characters or fewer) that summarizes the question's topic, e.g. 'Auth method'. Set multiSelect to true only when a question's choices are not mutually exclusive and the user may pick more than one of them. The user can always answer with free text through a built-in 'Other' entry, so do not add your own 'Other' option to the options list. If later tool calls depend on the answer, do not place them in this assistant message: wait for the answer and use a subsequent assistant turn. Keep dialog text concise; put long context in normal assistant text. Do not use this tool for choices that have an obvious conventional default or that you could reasonably decide yourself.";
 
-function toolError(text: string) {
-	return { content: [{ type: "text" as const, text }], details: undefined, isError: true };
-}
-
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "ask_user_question",
@@ -65,15 +62,9 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const rawQuestions = typeof params === "object" && params !== null ? (params as { questions?: unknown }).questions : undefined;
-			const validation = validateQuestions(rawQuestions);
-			if (!validation.ok) return toolError(`Invalid ask_user_question input: ${validation.error}`);
-			const questions = validation.questions;
+			const questions = validatedQuestionsOrThrow(rawQuestions);
 
-			if (!ctx.hasUI || process.env.PI_SUBAGENT_CHILD === "1") {
-				return toolError(
-					"This session is not interactive, so the question could not be shown. Proceed with your best judgment, or ask the user in plain text instead.",
-				);
-			}
+			assertInteractiveQuestionSession(ctx.hasUI, process.env.PI_SUBAGENT_CHILD === "1");
 
 			if (ctx.mode === "tui") {
 				// One unified tabbed dialog for the whole call, with back/forward

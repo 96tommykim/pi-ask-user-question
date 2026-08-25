@@ -11,6 +11,30 @@ export interface Viewport {
 	hasBelow: boolean;
 }
 
+/** A scrollable body plus a one-line action footer when there is room for both. */
+export interface StickyFooterViewport {
+	body: Viewport;
+	footerVisible: boolean;
+}
+
+/**
+ * Reserve one row for persistent actions without exceeding `height`. At one
+ * row, preserve the focused body row instead; a footer cannot coexist safely.
+ */
+export function calculateStickyFooterViewport(
+	totalLines: number,
+	height: number,
+	focusStart: number,
+	focusEnd = focusStart,
+): StickyFooterViewport {
+	const viewportHeight = Math.max(1, Math.floor(height));
+	const footerVisible = viewportHeight >= 2;
+	return {
+		body: calculateViewport(totalLines, viewportHeight - Number(footerVisible), focusStart, focusEnd),
+		footerVisible,
+	};
+}
+
 export function calculateViewport(totalLines: number, height: number, focusStart: number, focusEnd = focusStart): Viewport {
 	const total = Math.max(0, Math.floor(totalLines));
 	const viewportHeight = Math.max(1, Math.floor(height));
