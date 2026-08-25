@@ -38,7 +38,9 @@ A single question skips the tab bar; a multiSelect question shows checkboxes and
 
 - **Tabbed TUI dialog**: in the TUI, every question for a call is shown in one persistent custom dialog.
   ←/→ (or Tab/Shift+Tab) switch questions, wrapping around; each question keeps its own cursor and
-  selection when you navigate away and back. Answering a question (or confirming a multiSelect one)
+  selection when you navigate away and back. The dialog uses a bounded viewport sized from the terminal:
+  it keeps the selected option or Other editor cursor visible after navigation and resize, and shows ↑/↓
+  indicators when wrapped content is outside the viewport and space permits. Answering a question (or confirming a multiSelect one)
   automatically advances to the next *unanswered* question. Once every question is answered, the dialog
   resolves and the call completes. Esc cancels the whole call — except while typing an "Other" answer,
   where it only backs out of that text input (see below); Ctrl+C always cancels the whole call, including
@@ -66,6 +68,14 @@ A single question skips the tab bar; a multiSelect question shows checkboxes and
   identically to another option, or to the built-in "Other"/"Done" entries, duplicate entries get a
   disambiguating " (2)", " (3)", … suffix so the built-in entries can never be hijacked by a same-looking
   option.
+- **Input validation**: before any UI opens, runtime input is checked independently of the schema. Questions
+  need non-empty question text and headers, and 2–4 options with non-empty labels; descriptions may be empty.
+  Oversized question and option arrays retain the historical max-four clamp. Malformed values return a clear
+  tool error rather than reaching the dialog renderer.
+- **Sequencing, not gating**: `executionMode: "sequential"` only serializes this tool's calls. It does not
+  cancel sibling calls, and it does not bind an answer to a later operation. This package is a generic
+  question tool, not a permission gate. When a later tool call depends on an answer, make that call in a
+  subsequent assistant turn after the answer arrives.
 - **Non-interactive sessions**: the tool only requires dialog-capable UI (`ctx.hasUI`, true in both TUI and
   RPC modes) and is disabled for subagent children (`PI_SUBAGENT_CHILD=1`). When unavailable, it returns a
   graceful error telling the model to proceed with its best judgment or ask the user in plain text, instead
@@ -74,10 +84,10 @@ A single question skips the tab bar; a multiSelect question shows checkboxes and
 ## Development
 
 ```
-node --test extensions/ask-user-question/ask.test.ts
+node --test extensions/ask-user-question/*.test.ts
 ```
 
-`extensions/ask-user-question/ask.ts` is pure logic with zero imports from Pi packages or TypeBox, so it
-runs directly under `node --test`. `extensions/ask-user-question/index.ts` is the extension entry that
+`extensions/ask-user-question/ask.ts` and `viewport.ts` are pure logic with zero imports from Pi packages
+or TypeBox, so they run directly under `node --test`. `extensions/ask-user-question/index.ts` is the extension entry that
 wires that logic into `pi.registerTool`; it relies on the TypeBox and Pi types that the Pi host provides
 at runtime, so it isn't smoke-tested outside of a real `pi` installation.

@@ -10,11 +10,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-	clampQuestions,
 	formatAnswers,
 	joinMultiSelectAnswer,
 	multiSelectItems,
-	type Question,
+	validateQuestions,
 	singleSelectItems,
 	titleFor,
 	toggleIndexForItem,
@@ -50,7 +49,11 @@ const AskUserQuestionParams = Type.Object({
 });
 
 const DESCRIPTION =
-	"Ask the user one or more structured multiple-choice questions when you are blocked on a decision that is genuinely the user's to make — not one you could resolve yourself with more research or a reasonable default. Ask 1 to 4 questions per call, each with 2 to 4 mutually exclusive options that have a short label and a one-line description. Set 'header' to a short chip label (about 12 characters or fewer) that summarizes the question's topic, e.g. 'Auth method'. Set multiSelect to true only when a question's choices are not mutually exclusive and the user may pick more than one of them. The user can always answer with free text through a built-in 'Other' entry, so do not add your own 'Other' option to the options list. Do not use this tool for choices that have an obvious conventional default or that you could reasonably decide yourself.";
+	"Ask the user one or more structured multiple-choice questions when you are blocked on a decision that is genuinely the user's to make — not one you could resolve yourself with more research or a reasonable default. Ask 1 to 4 questions per call, each with 2 to 4 mutually exclusive options that have a short label and a one-line description. Set 'header' to a short chip label (about 12 characters or fewer) that summarizes the question's topic, e.g. 'Auth method'. Set multiSelect to true only when a question's choices are not mutually exclusive and the user may pick more than one of them. The user can always answer with free text through a built-in 'Other' entry, so do not add your own 'Other' option to the options list. If later tool calls depend on the answer, do not place them in this assistant message: wait for the answer and use a subsequent assistant turn. Keep dialog text concise; put long context in normal assistant text. Do not use this tool for choices that have an obvious conventional default or that you could reasonably decide yourself.";
+
+function toolError(text: string) {
+	return { content: [{ type: "text" as const, text }], details: undefined, isError: true };
+}
 
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
@@ -61,17 +64,15 @@ export default function (pi: ExtensionAPI) {
 		executionMode: "sequential",
 
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const rawQuestions = typeof params === "object" && params !== null ? (params as { questions?: unknown }).questions : undefined;
+			const validation = validateQuestions(rawQuestions);
+			if (!validation.ok) return toolError(`Invalid ask_user_question input: ${validation.error}`);
+			const questions = validation.questions;
+
 			if (!ctx.hasUI || process.env.PI_SUBAGENT_CHILD === "1") {
-				throw new Error(
+				return toolError(
 					"This session is not interactive, so the question could not be shown. Proceed with your best judgment, or ask the user in plain text instead.",
 				);
-			}
-
-			const questions = clampQuestions(params.questions as Question[]);
-			if (questions.length === 0) {
-				// The host does not runtime-validate the TypeBox schema, so an empty array can
-				// reach here; without this guard it reaches dialog.ts's render loop and throws.
-				throw new Error("No questions were provided.");
 			}
 
 			if (ctx.mode === "tui") {

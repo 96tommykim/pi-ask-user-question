@@ -17,6 +17,7 @@ import {
 	titleFor,
 	toggleIndexForItem,
 	toggleSelection,
+	validateQuestions,
 } from "./ask.ts";
 
 function makeQuestion(overrides: Partial<Question> = {}): Question {
@@ -54,6 +55,35 @@ test("clampQuestions does not enforce minimums", () => {
 	const clamped = clampQuestions([makeQuestion({ options: [] })]);
 	assert.equal(clamped.length, 1);
 	assert.equal(clamped[0].options.length, 0);
+});
+
+test("validateQuestions rejects malformed runtime values with clear errors", () => {
+	for (const [value, expected] of [
+		[undefined, "questions must be a non-empty array"],
+		[[], "must contain at least one question"],
+		[[{ question: "", header: "Header", options: makeQuestion().options }], ".question must be a non-empty string"],
+		[[{ question: "Question", header: " ", options: makeQuestion().options }], ".header must be a non-empty string"],
+		[[{ question: "Question", header: "Header", options: [{ label: "A", description: "" }] }], "must contain at least 2 options"],
+		[[{ question: "Question", header: "Header", options: [{ label: "", description: "" }, { label: "B", description: "" }] }], ".label must be a non-empty string"],
+		[[{ question: "Question", header: "Header", options: [{ label: "A", description: null }, { label: "B", description: "" }] }], ".description must be a string"],
+		[[{ question: "Question", header: "Header", options: makeQuestion().options, multiSelect: "yes" }], ".multiSelect must be a boolean"],
+	] as Array<[unknown, string]>) {
+		const result = validateQuestions(value);
+		assert.equal(result.ok, false);
+		if (!result.ok) assert.match(result.error, new RegExp(expected));
+	}
+});
+
+test("validateQuestions accepts empty descriptions and clamps oversized arrays", () => {
+	const options = Array.from({ length: 5 }, (_, i) => ({ label: `Option ${i}`, description: "" }));
+	const questions = Array.from({ length: 5 }, (_, i) => ({ question: `Question ${i}`, header: `Header ${i}`, options }));
+	const result = validateQuestions(questions);
+	assert.equal(result.ok, true);
+	if (result.ok) {
+		assert.equal(result.questions.length, 4);
+		assert.equal(result.questions[0].options.length, 4);
+		assert.equal(result.questions[0].options[0].description, "");
+	}
 });
 
 test("formatOption joins label and description with an em dash", () => {

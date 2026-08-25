@@ -20,9 +20,65 @@ export interface Question {
 	multiSelect?: boolean;
 }
 
+export type QuestionValidation = { ok: true; questions: Question[] } | { ok: false; error: string };
+
 /** Keep at most 4 questions, at most 4 options each. No minimums enforced. */
 export function clampQuestions(questions: Question[]): Question[] {
 	return questions.slice(0, 4).map((q) => ({ ...q, options: q.options.slice(0, 4) }));
+}
+
+/**
+ * Validate untrusted tool arguments before UI code reads them. TypeBox describes
+ * the model-facing schema, but the host can still call an extension with values
+ * that have not passed that validation. Oversized arrays retain the historic
+ * max-four clamping; invalid minima and field types are rejected clearly.
+ */
+export function validateQuestions(value: unknown): QuestionValidation {
+	if (!Array.isArray(value)) return { ok: false, error: "questions must be a non-empty array." };
+	if (value.length === 0) return { ok: false, error: "questions must contain at least one question." };
+
+	const questions: Question[] = [];
+	for (const [questionIndex, rawQuestion] of value.slice(0, 4).entries()) {
+		if (!isRecord(rawQuestion)) return { ok: false, error: `questions[${questionIndex}] must be an object.` };
+		if (typeof rawQuestion.question !== "string" || !rawQuestion.question.trim()) {
+			return { ok: false, error: `questions[${questionIndex}].question must be a non-empty string.` };
+		}
+		if (typeof rawQuestion.header !== "string" || !rawQuestion.header.trim()) {
+			return { ok: false, error: `questions[${questionIndex}].header must be a non-empty string.` };
+		}
+		if (!Array.isArray(rawQuestion.options)) {
+			return { ok: false, error: `questions[${questionIndex}].options must be an array with 2 to 4 options.` };
+		}
+
+		const options: Option[] = [];
+		for (const [optionIndex, rawOption] of rawQuestion.options.slice(0, 4).entries()) {
+			if (!isRecord(rawOption)) return { ok: false, error: `questions[${questionIndex}].options[${optionIndex}] must be an object.` };
+			if (typeof rawOption.label !== "string" || !rawOption.label.trim()) {
+				return { ok: false, error: `questions[${questionIndex}].options[${optionIndex}].label must be a non-empty string.` };
+			}
+			if (typeof rawOption.description !== "string") {
+				return { ok: false, error: `questions[${questionIndex}].options[${optionIndex}].description must be a string.` };
+			}
+			options.push({ label: rawOption.label, description: rawOption.description });
+		}
+		if (options.length < 2) {
+			return { ok: false, error: `questions[${questionIndex}].options must contain at least 2 options.` };
+		}
+		if (rawQuestion.multiSelect !== undefined && typeof rawQuestion.multiSelect !== "boolean") {
+			return { ok: false, error: `questions[${questionIndex}].multiSelect must be a boolean when provided.` };
+		}
+		questions.push({
+			question: rawQuestion.question,
+			header: rawQuestion.header,
+			options,
+			...(rawQuestion.multiSelect === undefined ? {} : { multiSelect: rawQuestion.multiSelect }),
+		});
+	}
+	return { ok: true, questions };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** "label — description", or just "label" when description is empty. */

@@ -10,7 +10,7 @@
  */
 
 import type { ExtensionContext, KeybindingsManager } from "@earendil-works/pi-coding-agent";
-import { Editor, type EditorTheme, Key, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, Editor, type EditorTheme, Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import {
 	joinMultiSelectAnswer,
 	moveCursor,
@@ -20,6 +20,7 @@ import {
 	switchQuestion,
 	toggleSelection,
 } from "./ask.ts";
+import { calculateViewport, viewportIndicator } from "./viewport.ts";
 
 interface QuestionState {
 	cursor: number;
@@ -55,7 +56,9 @@ export function promptQuestions(
 			// (no answer is recorded) — the user presses enter again to confirm without Other.
 			let multiSelectPendingIndex: number | undefined;
 			let cachedWidth: number | undefined;
+			let cachedHeight: number | undefined;
 			let cachedLines: string[] | undefined;
+			let componentFocused = false;
 
 			const editorTheme: EditorTheme = {
 				borderColor: (s) => theme.fg("accent", s),
@@ -74,6 +77,10 @@ export function promptQuestions(
 
 			function refresh() {
 				cachedLines = undefined;
+				// The custom dialog remains the TUI's focused component so it can
+				// intercept Esc, but its embedded Editor must still emit Pi's cursor
+				// marker for IME/cursor positioning while Other is active.
+				editor.focused = componentFocused && inputMode;
 				tui.requestRender();
 			}
 
@@ -256,20 +263,35 @@ export function promptQuestions(
 				}
 			}
 
+			function fitLine(text: string, width: number): string {
+				// Pi's ANSI/grapheme-aware truncation handles CJK and keeps APC cursor
+				// markers intact, unlike String#slice which can split either one.
+				const safeWidth = Math.max(1, width);
+				const fitted = truncateToWidth(text, safeWidth, "");
+				if (!text.includes(CURSOR_MARKER) || fitted.includes(CURSOR_MARKER)) return fitted;
+				// At one column an Editor cursor can fall after the truncated glyph.
+				// Retain its marker at the visible edge so host clipping and IME still
+				// track the focused row instead of silently losing the cursor.
+				return `${CURSOR_MARKER}${truncateToWidth(text.replace(CURSOR_MARKER, ""), safeWidth, "")}`;
+			}
+
 			function addWrapped(lines: string[], text: string, width: number) {
-				lines.push(...wrapTextWithAnsi(text, width));
+				for (const line of wrapTextWithAnsi(text, Math.max(1, width))) lines.push(fitLine(line, width));
 			}
 
 			function addWrappedWithPrefix(lines: string[], prefix: string, text: string, width: number) {
+				const safeWidth = Math.max(1, width);
 				const prefixWidth = visibleWidth(prefix);
-				if (prefixWidth >= width) {
-					addWrapped(lines, prefix + text, width);
+				if (prefixWidth >= safeWidth) {
+					// Keep an oversized selected-row prefix (and its cursor marker) rather
+					// than letting indentation produce a line wider than the terminal.
+					addWrapped(lines, prefix + text, safeWidth);
 					return;
 				}
-				const wrapped = wrapTextWithAnsi(text, width - prefixWidth);
+				const wrapped = wrapTextWithAnsi(text, safeWidth - prefixWidth);
 				const continuationPrefix = " ".repeat(prefixWidth);
 				for (let i = 0; i < wrapped.length; i++) {
-					lines.push(`${i === 0 ? prefix : continuationPrefix}${wrapped[i]}`);
+					lines.push(fitLine(`${i === 0 ? prefix : continuationPrefix}${wrapped[i]}`, safeWidth));
 				}
 			}
 
@@ -283,7 +305,10 @@ export function promptQuestions(
 				description: string,
 			) {
 				const isCursor = index === state.cursor;
-				const prefix = isCursor ? theme.fg("accent", "❯ ") : "  ";
+				// Outside Other input mode, this is the sole cursor marker. Pi's
+				// fullscreen layout uses it to retain the selected row when clipping.
+				const marker = componentFocused && !inputMode && isCursor ? CURSOR_MARKER : "";
+				const prefix = isCursor ? `${marker}${theme.fg("accent", "❯ ")}` : "  ";
 				const checkbox = multiSelect ? (state.selected.has(index) ? "[x] " : "[ ] ") : "";
 				const color = isCursor ? "accent" : "text";
 				const labelText = theme.fg(color, `${checkbox}${label}`);
@@ -313,30 +338,43 @@ export function promptQuestions(
 			}
 
 			function render(width: number): string[] {
-				if (cachedLines && cachedWidth === width) return cachedLines;
-
 				const renderWidth = Math.max(1, width);
+				// Two rows leave room for the host's surrounding editor/footer. The
+				// calculation itself still guarantees at least one body row on tiny
+				// terminals rather than passing a zero or negative height downstream.
+				const viewportHeight = Math.max(1, tui.terminal.rows - 2);
+				if (cachedLines && cachedWidth === width && cachedHeight === viewportHeight) return cachedLines;
+
 				const lines: string[] = [];
 				const q = questions[currentTab];
 				const state = states[currentTab];
+				const rowStarts: number[] = [];
+				let focusStart = 0;
 
 				lines.push(theme.fg("accent", "─".repeat(renderWidth)));
 				if (showTabs) addTabBar(lines, renderWidth);
-
 				addWrappedWithPrefix(lines, " ", theme.fg("text", q.question), renderWidth);
 				lines.push("");
 
 				for (let i = 0; i < q.options.length; i++) {
+					rowStarts.push(lines.length);
 					addRow(lines, renderWidth, state, !!q.multiSelect, i, q.options[i].label, q.options[i].description);
 				}
+				rowStarts.push(lines.length);
 				addRow(lines, renderWidth, state, !!q.multiSelect, q.options.length, OTHER_LABEL, "");
+				focusStart = rowStarts[state.cursor] ?? 0;
 
 				lines.push("");
 				if (inputMode) {
 					addWrappedWithPrefix(lines, " ", theme.fg("muted", "Your answer:"), renderWidth);
-					for (const line of editor.render(Math.max(1, renderWidth - 2))) {
-						lines.push(` ${line}`);
-					}
+					const editorStart = lines.length;
+					const editorIndent = renderWidth > 1 ? " " : "";
+					const editorLines = editor.render(Math.max(1, renderWidth - visibleWidth(editorIndent)));
+					const cursorLine = editorLines.findIndex((line) => line.includes(CURSOR_MARKER));
+					for (const line of editorLines) lines.push(fitLine(`${editorIndent}${line}`, renderWidth));
+					// The editor's cursor is the useful focused range: its own renderer
+					// scrolls long text before this outer viewport is applied.
+					focusStart = editorStart + Math.max(0, cursorLine);
 					lines.push("");
 					addWrappedWithPrefix(lines, " ", theme.fg("dim", "enter submit · esc back"), renderWidth);
 				} else {
@@ -344,12 +382,34 @@ export function promptQuestions(
 				}
 				lines.push(theme.fg("accent", "─".repeat(renderWidth)));
 
+				// Wrapping can still yield an over-wide CJK grapheme or a host component
+				// line, so normalize every final line before viewport selection.
+				const safeLines = lines.map((line) => fitLine(line, renderWidth));
+				const viewport = calculateViewport(safeLines.length, viewportHeight, focusStart);
+				const visible: string[] = [];
+				if (viewport.hasAbove) visible.push(fitLine(theme.fg("dim", viewportIndicator("up", viewport.start, renderWidth)), renderWidth));
+				visible.push(...safeLines.slice(viewport.start, viewport.end));
+				if (viewport.hasBelow) visible.push(fitLine(theme.fg("dim", viewportIndicator("down", safeLines.length - viewport.end, renderWidth)), renderWidth));
+
 				cachedWidth = width;
-				cachedLines = lines;
-				return lines;
+				cachedHeight = viewportHeight;
+				cachedLines = visible;
+				return visible;
 			}
 
 			return {
+				get focused() {
+					return componentFocused;
+				},
+				set focused(focused: boolean) {
+					if (componentFocused === focused) return;
+					componentFocused = focused;
+					editor.focused = focused && inputMode;
+					// TUI.setFocus updates Focusable state but does not request a render.
+					// Drop cached cursor-marker lines before explicitly drawing the change.
+					cachedLines = undefined;
+					tui.requestRender();
+				},
 				render,
 				handleInput,
 				invalidate() {
