@@ -106,7 +106,8 @@ export function assertInteractiveQuestionSession(hasUI: boolean, isSubagent: boo
 	}
 }
 
-function hasTerminalControl(value: string): boolean {
+/** Terminal control characters, rejected in every field the dialog renders. */
+export function hasTerminalControl(value: string): boolean {
 	return /[\u0000-\u001f\u007f-\u009f]/.test(value);
 }
 
